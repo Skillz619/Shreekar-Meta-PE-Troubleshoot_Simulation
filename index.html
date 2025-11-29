@@ -1,0 +1,1014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meta PE Troubleshooting Sim</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Styles -->
+    <style>
+        body { margin: 0; background-color: #0f172a; color: #e2e8f0; }
+        .animate-spin-slow { animation: spin 3s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        /* Custom scrollbar for terminal feel */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Icons (Inline SVGs to avoid import issues) ---
+        const TerminalIcon = ({className}) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>;
+        const CpuIcon = ({size, className}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>;
+        const HardDriveIcon = ({size, className}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="22" y1="12" x2="2" y2="12"></line><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path><line x1="6" y1="16" x2="6.01" y2="16"></line><line x1="10" y1="16" x2="10.01" y2="16"></line></svg>;
+        const WifiIcon = ({size, className}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>;
+        const CheckCircleIcon = ({size, className}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>;
+        const RotateCcwIcon = ({size, className}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>;
+        const HelpCircleIcon = ({size, className}) => <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>;
+
+        // --- Initial Data ---
+        const initialFS = {
+          type: 'dir',
+          children: {
+            home: {
+              type: 'dir',
+              children: {
+                user: {
+                  type: 'dir',
+                  children: {
+                    'notes.txt': { type: 'file', content: 'Remember to check the nginx config.', size: 1024 },
+                  },
+                },
+              },
+            },
+            etc: {
+              type: 'dir',
+              children: {
+                'nginx': {
+                    type: 'dir',
+                    children: {
+                        'nginx.conf': { type: 'file', content: 'server {\n  listen 80;\n  root /var/www/html;\n}', size: 400 },
+                    }
+                },
+                'hosts': { type: 'file', content: '127.0.0.1 localhost\n44.118.20.13 dogpark.com', size: 50 },
+              },
+            },
+            var: {
+              type: 'dir',
+              children: {
+                log: {
+                  type: 'dir',
+                  children: {
+                    'syslog': { type: 'file', content: 'Nov 29 10:00:01 systemd[1]: Started System Logging Service.\nNov 29 10:05:01 CRON[123]: (root) CMD (cd / && run-parts --report /etc/cron.hourly)\nNov 29 11:00:01 systemd[1]: Started Session 4 of user user.', size: 20480 },
+                    'nginx': {
+                        type: 'dir',
+                        children: {
+                            'access.log': { type: 'file', content: '', size: 0 },
+                            'error.log': { type: 'file', content: '', size: 0 }
+                        }
+                    }
+                  },
+                },
+                www: {
+                    type: 'dir',
+                    children: {
+                        html: {
+                            type: 'dir',
+                            children: {
+                                'index.html': { type: 'file', content: '<h1>Welcome to Meta PE Sim</h1>', size: 500 }
+                            }
+                        }
+                    }
+                }
+              },
+            },
+            opt: { type: 'dir', children: {} },
+            proc: { type: 'dir', children: {} },
+            tmp: { type: 'dir', children: {} },
+          },
+        };
+
+        const initialProcesses = [
+          { pid: 1, user: 'root', cpu: 0.1, mem: 0.5, command: '/sbin/init', status: 'S' },
+          { pid: 450, user: 'root', cpu: 0.0, mem: 0.2, command: 'systemd-journald', status: 'S' },
+          { pid: 880, user: 'root', cpu: 0.1, mem: 1.2, command: 'sshd', status: 'S' },
+          { pid: 1205, user: 'user', cpu: 0.5, mem: 2.5, command: 'bash', status: 'S' },
+        ];
+
+        // --- Scenarios ---
+        const scenarios = [
+          {
+            id: 'cpu_hog',
+            name: 'Scenario 1: Sluggish Performance',
+            difficulty: 'Easy',
+            description: 'Users are reporting that the server is extremely slow. Latency is high for simple requests.',
+            objective: 'Identify and terminate the process causing high CPU usage.',
+            hints: [
+                'top (check load average and high CPU processes)',
+                'ps aux (find the PID of crypto_miner_v2)',
+                'kill 6666 (terminate the miner)'
+            ],
+            setup: (state) => ({
+              ...state,
+              processes: [
+                ...initialProcesses,
+                { pid: 6666, user: 'www-data', cpu: 99.8, mem: 15.0, command: './crypto_miner_v2', status: 'R' },
+                { pid: 6667, user: 'root', cpu: 0.0, mem: 1.0, command: 'nginx: master process', status: 'S' },
+              ],
+              services: { 'nginx': 'active' },
+              activeScenarioId: 'cpu_hog',
+              isSolved: false,
+            }),
+            checkWin: (state) => !state.processes.find((p) => p.command === './crypto_miner_v2'),
+          },
+          {
+            id: 'port_conflict',
+            name: 'Scenario 2: Service Won\'t Start',
+            difficulty: 'Medium',
+            description: 'The Nginx web server is down. Attempts to restart it fail silently or with generic errors.',
+            objective: 'Investigate why Nginx is failing and fix it so `curl localhost:80` returns the welcome page.',
+            hints: [
+                'systemctl start nginx (observe failure)',
+                'cat /var/log/nginx/error.log (read "Address already in use")',
+                'netstat -tulpn (find process on port 80)',
+                'kill 3421 (kill python debug_server)',
+                'systemctl start nginx (restart service)',
+                'curl localhost (verify)'
+            ],
+            setup: (state) => ({
+              ...state,
+              processes: [
+                ...initialProcesses,
+                { pid: 3421, user: 'dev', cpu: 0.1, mem: 5.0, command: 'python3 debug_server.py', status: 'S' },
+              ],
+              services: { 'nginx': 'failed' },
+              fs: {
+                  ...state.fs,
+                  children: {
+                      ...state.fs.children,
+                      var: {
+                          ...state.fs.children?.var,
+                          children: {
+                              ...state.fs.children?.var?.children,
+                              log: {
+                                  ...state.fs.children?.var?.children?.log,
+                                  children: {
+                                     ...state.fs.children?.var?.children?.log?.children,
+                                     nginx: {
+                                         type: 'dir',
+                                         children: {
+                                             'error.log': { type: 'file', content: '2023/11/29 10:15:00 [emerg] 1234#0: bind() to 0.0.0.0:80 failed (98: Address already in use)\n', size: 500 }
+                                         }
+                                     }
+                                  }
+                              }
+                          }
+                      }
+                  }
+              },
+              activeScenarioId: 'port_conflict',
+              isSolved: false,
+            }),
+            checkWin: (state) => state.services['nginx'] === 'active' && !state.processes.find(p => p.command === 'python3 debug_server.py'),
+          },
+          {
+            id: 'disk_full',
+            name: 'Scenario 3: Disk Space Alert',
+            difficulty: 'Medium',
+            description: 'Services are crashing because they cannot write to the disk. The main partition seems full.',
+            objective: 'Free up space on /var/log to allow services to resume.',
+            hints: [
+                'df -h (check filesystem usage)',
+                'du /var (find large directories)',
+                'ls -lh /var/log/nginx (identify huge log file)',
+                'rm /var/log/nginx/error.log (delete the file)'
+            ],
+            setup: (state) => ({
+              ...state,
+              activeScenarioId: 'disk_full',
+              processes: [...initialProcesses, { pid: 900, user: 'root', cpu: 0.1, mem: 1.0, command: 'rsyslogd', status: 'S' }],
+              services: { 'nginx': 'active' },
+              fs: {
+                ...state.fs,
+                children: {
+                  ...state.fs.children,
+                  var: {
+                    ...state.fs.children.var,
+                    children: {
+                      ...state.fs.children.var.children,
+                      log: {
+                        type: 'dir',
+                        children: {
+                          'syslog': { type: 'file', content: '...', size: 1024 },
+                          'error.log': { type: 'file', content: 'E'.repeat(100), size: 1024 * 1024 * 1024 * 40 },
+                          'app.log': { type: 'file', content: 'Normal logs...', size: 2048 },
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              isSolved: false,
+            }),
+            checkWin: (state) => {
+                const varDir = state.fs.children?.var?.children;
+                const logDir = varDir?.log?.children;
+                if (!logDir) return true;
+                const hugeFile = logDir['error.log'];
+                return !hugeFile || (hugeFile.size || 0) < 1000000;
+            }
+          },
+          {
+            id: 'website_down_2am',
+            name: 'Scenario 4: 2:00 AM Website Down',
+            difficulty: 'Hard',
+            description: 'dogpark.com is down. It is 2 AM. The service seems to be in a crash loop.',
+            objective: 'Diagnose the crash loop, fix the underlying resource exhaustion, and restore the backend service.',
+            hints: [
+                'dig dogpark.com (check DNS)',
+                'telnet dogpark.com 80 (check port)',
+                'systemctl status dogpark-backend (check service)',
+                'iostat (check disk IO)',
+                'df -h (check disk space)',
+                'truncate -s 0 /var/log/dogpark/server.log (clear log)',
+                'systemctl restart dogpark-backend (restore service)'
+            ],
+            setup: (state) => {
+                const newState = JSON.parse(JSON.stringify(state)); 
+                if(newState.fs.children.var.children.log.children) {
+                     newState.fs.children.var.children.log.children['dogpark'] = {
+                         type: 'dir',
+                         children: {
+                             'server.log': { type: 'file', content: 'DEBUG [main] - user clicked button\n'.repeat(100), size: 38 * 1024 * 1024 * 1024 } 
+                         }
+                     };
+                }
+                
+                return {
+                    ...newState,
+                    activeScenarioId: 'website_down_2am',
+                    services: { 'dogpark-backend': 'crashloop' },
+                    processes: [...initialProcesses, { pid: 1845, user: 'dogpark', cpu: 12.0, mem: 75.0, command: 'java -jar backend.jar', status: 'D' }],
+                    isSolved: false,
+                };
+            },
+            checkWin: (state) => {
+                const dogparkLog = state.fs.children?.var?.children?.log?.children?.['dogpark']?.children?.['server.log'];
+                const isDiskFree = !dogparkLog || (dogparkLog.size || 0) < 1000000;
+                const isServiceUp = state.services['dogpark-backend'] === 'active';
+                return isDiskFree && isServiceUp;
+            }
+          },
+          {
+            id: 'failed_deploy',
+            name: 'Scenario 5: XYZ Deployment Ghost',
+            difficulty: 'Medium',
+            description: 'Developers deployed v2 of the XYZ service (port 8080), but the endpoint still returns the old version.',
+            objective: 'Investigate the version mismatch and ensure the service returns the v2 response.',
+            hints: [
+                'curl localhost:8080 (verify it returns v1)',
+                'ls -l /opt/xyz (check the "current" symlink)',
+                'ln -sf /opt/xyz/releases/v2 /opt/xyz/current (fix symlink)',
+                'curl localhost:8080 (verify v2)'
+            ],
+            setup: (state) => {
+                const newState = JSON.parse(JSON.stringify(state));
+                newState.fs.children['opt'] = {
+                    type: 'dir',
+                    children: {
+                        'xyz': {
+                            type: 'dir',
+                            children: {
+                                'releases': {
+                                    type: 'dir',
+                                    children: {
+                                        'v1': { type: 'dir', children: { 'app.bin': { type: 'file', content: 'v1 binary', size: 5000 } } },
+                                        'v2': { type: 'dir', children: { 'app.bin': { type: 'file', content: 'v2 binary', size: 5500 } } }
+                                    }
+                                },
+                                'current': { type: 'symlink', target: '/opt/xyz/releases/v1', size: 18 }
+                            }
+                        }
+                    }
+                };
+                return {
+                    ...newState,
+                    activeScenarioId: 'failed_deploy',
+                    services: { 'xyz-service': 'active' },
+                    processes: [...initialProcesses, { pid: 4004, user: 'xyz', cpu: 2.0, mem: 10.0, command: '/opt/xyz/current/app.bin', status: 'S' }],
+                    isSolved: false,
+                };
+            },
+            checkWin: (state) => {
+                const link = state.fs.children?.opt?.children?.xyz?.children?.current;
+                return link?.type === 'symlink' && link.target === '/opt/xyz/releases/v2';
+            }
+          },
+          {
+            id: 'inode_exhaustion',
+            name: 'Scenario 6: The Phantom Disk Usage',
+            difficulty: 'Hard',
+            description: 'System cannot write new files ("No space left on device"), but `df -h` shows 40% free space. Why?',
+            objective: 'Identify the resource exhaustion and fix it.',
+            hints: [
+                'touch test_file (observe failure)',
+                'df -h (observe available space)',
+                'df -i (check Inode usage - 100%!)',
+                'find /var/spool -type d (simulate finding the bad dir)',
+                'rm -rf /var/spool/client_mqueue (clean up inodes)'
+            ],
+            setup: (state) => {
+                const newState = JSON.parse(JSON.stringify(state));
+                if(newState.fs.children.var.children) {
+                     newState.fs.children.var.children['spool'] = {
+                         type: 'dir',
+                         children: {
+                             'client_mqueue': {
+                                 type: 'dir',
+                                 children: {
+                                     'msg.001': { type: 'file', size: 0 },
+                                 },
+                                 size: 4096 
+                             }
+                         }
+                     };
+                }
+                return {
+                    ...newState,
+                    activeScenarioId: 'inode_exhaustion',
+                    isSolved: false,
+                };
+            },
+            checkWin: (state) => {
+                const spool = state.fs.children?.var?.children?.spool?.children;
+                return !spool || !spool['client_mqueue'];
+            }
+          }
+        ];
+
+        // --- Utilities ---
+        const resolvePath = (fs, cwd, targetPath) => {
+            let pathParts = [];
+            if (targetPath.startsWith('/')) {
+                pathParts = targetPath.split('/').filter(p => p);
+            } else {
+                const cwdParts = cwd.split('/').filter(p => p);
+                const targetParts = targetPath.split('/').filter(p => p);
+                pathParts = [...cwdParts, ...targetParts];
+            }
+            const normalizedParts = [];
+            for (const part of pathParts) {
+                if (part === '.') continue;
+                if (part === '..') { normalizedParts.pop(); } else { normalizedParts.push(part); }
+            }
+            let current = fs;
+            let parent = null;
+            let name = '';
+            for (let i = 0; i < normalizedParts.length; i++) {
+                const part = normalizedParts[i];
+                if (!current.children) return { node: null, parent, name: part };
+                if (!current.children[part]) { return { node: null, parent: current, name: part }; }
+                parent = current;
+                name = part;
+                current = current.children[part];
+            }
+            if (normalizedParts.length === 0) return { node: fs, parent: null, name: '/' };
+            return { node: current, parent, name };
+        };
+
+        const formatSize = (bytes) => {
+            if (bytes < 1024) return bytes + 'B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + 'K';
+            if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + 'M';
+            return (bytes / (1024 * 1024 * 1024)).toFixed(1) + 'G';
+        };
+
+        // --- Main Component ---
+        function PEMockInterview() {
+            const [gameState, setGameState] = useState({
+                fs: initialFS,
+                processes: initialProcesses,
+                cwd: '/home/user',
+                history: [
+                    { type: 'system', content: 'Meta Production Engineer Simulation Environment v1.5' },
+                    { type: 'system', content: 'Type "help" for available commands.' },
+                ],
+                services: { 'nginx': 'inactive' },
+                activeScenarioId: null,
+                isSolved: false,
+            });
+
+            const [input, setInput] = useState('');
+            const [inputHistory, setInputHistory] = useState([]);
+            const [historyIndex, setHistoryIndex] = useState(-1);
+            const [showHints, setShowHints] = useState(false);
+            const bottomRef = useRef(null);
+            const inputRef = useRef(null);
+
+            useEffect(() => {
+                bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+            }, [gameState.history]);
+
+            const loadScenario = (scenarioId) => {
+                const scenario = scenarios.find(s => s.id === scenarioId);
+                if (!scenario) return;
+                setShowHints(false);
+                const baseState = {
+                    fs: JSON.parse(JSON.stringify(initialFS)),
+                    processes: [...initialProcesses],
+                    cwd: '/home/user',
+                    history: [
+                        { type: 'system', content: '---------------------------------------------------' },
+                        { type: 'system', content: `SCENARIO LOADED: ${scenario.name}` },
+                        { type: 'system', content: `${scenario.description}` },
+                        { type: 'system', content: `OBJECTIVE: ${scenario.objective}` },
+                        { type: 'system', content: '---------------------------------------------------' },
+                    ],
+                    services: { 'nginx': 'inactive' },
+                    activeScenarioId: null,
+                    isSolved: false,
+                };
+                setGameState(scenario.setup(baseState));
+                setInput('');
+                inputRef.current?.focus();
+            };
+
+            const checkScenarioStatus = (newState) => {
+                if (!newState.activeScenarioId || newState.isSolved) return newState;
+                const scenario = scenarios.find(s => s.id === newState.activeScenarioId);
+                if (scenario && scenario.checkWin(newState)) {
+                    return {
+                        ...newState,
+                        isSolved: true,
+                        history: [
+                            ...newState.history,
+                            { type: 'system', content: '🎉 SUCCESS! Scenario Resolved. Great job, Engineer.' }
+                        ]
+                    };
+                }
+                return newState;
+            };
+
+            const executeCommand = (cmdStr) => {
+                const trimmed = cmdStr.trim();
+                if (!trimmed) return;
+                setInputHistory(prev => [trimmed, ...prev]);
+                setHistoryIndex(-1);
+                const parts = trimmed.split(/\s+/);
+                const cmd = parts[0];
+                const args = parts.slice(1);
+                let newState = { ...gameState };
+                newState.history = [...newState.history, { type: 'input', content: `user@prod-box:${newState.cwd}$ ${trimmed}` }];
+
+                try {
+                    switch (cmd) {
+                        case 'help':
+                            newState.history.push({ type: 'output', content: 'Commands: ls, cd, pwd, cat, tail, ps, top, kill, rm, touch, ln, netstat, curl, telnet, ping, mtr, systemctl, service, df, du, grep, dig, vmstat, iostat, dmesg, truncate, clear' });
+                            break;
+                        case 'clear':
+                            newState.history = [];
+                            break;
+                        case 'ping':
+                            {
+                                const host = args[0];
+                                if (!host) {
+                                    newState.history.push({ type: 'error', content: 'usage: ping <host>' });
+                                    break;
+                                }
+                                if (host === 'localhost' || host === '127.0.0.1' || host === 'dogpark.com' || host === 'facebook.com') {
+                                    let out = `PING ${host} (127.0.0.1) 56(84) bytes of data.\n`;
+                                    out += `64 bytes from 127.0.0.1: icmp_seq=1 ttl=64 time=0.045 ms\n`;
+                                    out += `64 bytes from 127.0.0.1: icmp_seq=2 ttl=64 time=0.032 ms\n`;
+                                    out += `64 bytes from 127.0.0.1: icmp_seq=3 ttl=64 time=0.041 ms\n`;
+                                    out += `64 bytes from 127.0.0.1: icmp_seq=4 ttl=64 time=0.038 ms\n\n`;
+                                    out += `--- ${host} ping statistics ---\n`;
+                                    out += `4 packets transmitted, 4 received, 0% packet loss, time 3060ms`;
+                                    newState.history.push({ type: 'output', content: out });
+                                } else {
+                                    newState.history.push({ type: 'output', content: `PING ${host} (93.184.216.34) 56(84) bytes of data.\n... Request timeout` });
+                                }
+                            }
+                            break;
+                        case 'mtr':
+                            {
+                                const host = args[0] || 'destination.com';
+                                let out = `                                  My traceroute  [v0.92] \n`;
+                                out += `prod-box (0.0.0.0)                                     Sat Nov 29 10:00:00 2025\n`;
+                                out += `Keys:  Help   Display mode   Restart statistics   Order of fields   quit\n`;
+                                out += `                                       Packets               Pings\n`;
+                                out += ` Host                                Loss%   Snt   Last   Avg  Best  Wrst StDev\n`;
+                                out += ` 1. gateway.internal                  0.0%     4    0.3   0.3   0.2   0.4   0.1\n`;
+                                out += ` 2. edge-router.isp                   0.0%     4    5.2   6.1   5.0   8.2   1.4\n`;
+                                if (host.includes('dogpark') && newState.services['dogpark-backend'] !== 'active') {
+                                    out += ` 3. ???                              100.0     4    0.0   0.0   0.0   0.0   0.0\n`;
+                                } else {
+                                    out += ` 3. ${host}                       0.0%     4   12.5  12.8  12.2  13.5   0.5\n`;
+                                }
+                                newState.history.push({ type: 'output', content: out });
+                            }
+                            break;
+                        case 'telnet':
+                            {
+                                const host = args[0];
+                                const port = args[1];
+                                if (!host || !port) {
+                                    newState.history.push({ type: 'error', content: 'usage: telnet <host> <port>' });
+                                    break;
+                                }
+                                let isOpen = false;
+                                const p = parseInt(port);
+                                if (p === 22) isOpen = true; 
+                                if (p === 80 && (newState.services['nginx'] === 'active' || newState.processes.find(p => p.command.includes('python')))) isOpen = true;
+                                if (p === 8080 && (newState.services['dogpark-backend'] === 'active' || newState.services['xyz-service'] === 'active')) isOpen = true;
+
+                                if (host === 'localhost' || host === '127.0.0.1' || host === 'dogpark.com') {
+                                    if (isOpen) {
+                                        newState.history.push({ type: 'output', content: `Trying 127.0.0.1...\nConnected to ${host}.\nEscape character is '^]'.` });
+                                    } else {
+                                        newState.history.push({ type: 'output', content: `Trying 127.0.0.1...\ntelnet: Unable to connect to remote host: Connection refused` });
+                                    }
+                                } else {
+                                    newState.history.push({ type: 'output', content: `telnet: could not resolve ${host}/telnet: Name or service not known` });
+                                }
+                            }
+                            break;
+                        case 'iostat':
+                            {
+                                const isWa = newState.activeScenarioId === 'website_down_2am' && !newState.isSolved;
+                                const isInode = newState.activeScenarioId === 'inode_exhaustion' && !newState.isSolved;
+                                const cpuUser = isWa ? '12.00' : '2.00';
+                                const cpuSys = isWa ? '5.00' : '1.00';
+                                const cpuIdle = isWa ? '0.00' : '97.00';
+                                const cpuIo = isWa ? '83.00' : '0.00';
+                                const tps = isWa || isInode ? '500.00' : '12.00';
+                                const kbRead = isWa ? '120000.0' : '10.0';
+                                const kbWrtn = isWa ? '409600.0' : '40.0';
+                                let out = `Linux 5.4.0-generic (prod-box) 	11/29/2025 	_x86_64_	(4 CPU)\n\n`;
+                                out += `avg-cpu:  %user   %nice %system %iowait  %steal   %idle\n`;
+                                out += `          ${cpuUser}    0.00    ${cpuSys}   ${cpuIo}    0.00   ${cpuIdle}\n\n`;
+                                out += `Device             tps    kB_read/s    kB_wrtn/s    kB_read    kB_wrtn\n`;
+                                out += `sda               ${tps}     ${kbRead}     ${kbWrtn}    2048500    1050020\n`;
+                                newState.history.push({ type: 'output', content: out });
+                            }
+                            break;
+                        case 'tail':
+                            {
+                                const nIndex = args.indexOf('-n');
+                                const lineCount = nIndex !== -1 ? parseInt(args[nIndex+1]) : 10;
+                                const file = args.find(a => a !== '-n' && a !== args[nIndex+1] && !a.startsWith('-'));
+                                if (!file) {
+                                    newState.history.push({ type: 'error', content: 'tail: missing filename' });
+                                    break;
+                                }
+                                const res = resolvePath(newState.fs, newState.cwd, file);
+                                if (!res.node) newState.history.push({ type: 'error', content: `tail: ${file}: No such file` });
+                                else if (res.node.type !== 'file') newState.history.push({ type: 'error', content: `tail: ${file}: Is a directory` });
+                                else {
+                                    const lines = (res.node.content || '').split('\n');
+                                    const start = Math.max(0, lines.length - lineCount);
+                                    newState.history.push({ type: 'output', content: lines.slice(start).join('\n') });
+                                }
+                            }
+                            break;
+                        case 'dig':
+                            if (args[0] === 'dogpark.com') {
+                                let out = `\n; <<>> DiG 9.16.1-Ubuntu <<>> dogpark.com\n... ANSWER SECTION:\ndogpark.com.    300    IN    A    44.118.20.13\n`;
+                                newState.history.push({ type: 'output', content: out });
+                            } else {
+                                newState.history.push({ type: 'error', content: `dig: connection timed out` });
+                            }
+                            break;
+                        case 'touch':
+                            if (newState.activeScenarioId === 'inode_exhaustion') {
+                                newState.history.push({ type: 'error', content: `touch: cannot touch '${args[0]}': No space left on device` });
+                            } else {
+                                newState.history.push({ type: 'output', content: '' });
+                            }
+                            break;
+                        case 'ln':
+                            {
+                                const isForce = args[0] === '-sf' || args[0] === '-s';
+                                const target = isForce ? args[1] : args[0];
+                                const linkName = isForce ? args[2] : args[1];
+                                if (!target || !linkName) {
+                                    newState.history.push({ type: 'error', content: 'usage: ln -sf target link_name' });
+                                    break;
+                                }
+                                const res = resolvePath(newState.fs, newState.cwd, linkName);
+                                if (res.parent && res.name) {
+                                    if (!res.parent.children) res.parent.children = {};
+                                    res.parent.children[res.name] = { type: 'symlink', target: target, size: target.length };
+                                    newState.history.push({ type: 'output', content: '' });
+                                } else {
+                                    newState.history.push({ type: 'error', content: `ln: failed to create symbolic link '${linkName}': No such file or directory` });
+                                }
+                            }
+                            break;
+                        case 'ls':
+                            {
+                                const target = args.find(a => !a.startsWith('-')) || '.';
+                                const res = resolvePath(newState.fs, newState.cwd, target);
+                                if (!res.node) {
+                                    newState.history.push({ type: 'error', content: `ls: cannot access '${target}': No such file or directory` });
+                                } else if (res.node.type === 'file') {
+                                    const sizeStr = formatSize(res.node.size || 0);
+                                    newState.history.push({ type: 'output', content: `-rw-r--r-- 1 root root ${sizeStr} ${target}` });
+                                } else if (res.node.type === 'symlink') {
+                                    newState.history.push({ type: 'output', content: `lrwxrwxrwx 1 root root ${res.node.size} ${target} -> ${res.node.target}` });
+                                } else {
+                                    const isLong = args.includes('-l') || args.includes('-lh') || args.includes('-la');
+                                    if (isLong) {
+                                        let out = '';
+                                        Object.keys(res.node.children || {}).forEach(name => {
+                                            const child = res.node.children[name];
+                                            const size = formatSize(child.size || 0);
+                                            if (child.type === 'dir') {
+                                                out += `drwxr-xr-x 2 root root ${size.padEnd(5)} ${name}\n`;
+                                            } else if (child.type === 'symlink') {
+                                                out += `lrwxrwxrwx 1 root root ${size.padEnd(5)} ${name} -> ${child.target}\n`;
+                                            } else {
+                                                out += `-rw-r--r-- 1 root root ${size.padEnd(5)} ${name}\n`;
+                                            }
+                                        });
+                                        newState.history.push({ type: 'output', content: out.trimEnd() });
+                                    } else {
+                                        const contents = Object.keys(res.node.children || {}).map(name => {
+                                            const child = res.node.children[name];
+                                            if (child.type === 'symlink') return `\u001b[1;36m${name}@\u001b[0m`;
+                                            return child.type === 'dir' ? `\u001b[1;34m${name}/\u001b[0m` : name;
+                                        }).join('  ');
+                                        newState.history.push({ type: 'output', content: contents });
+                                    }
+                                }
+                            }
+                            break;
+                        case 'df':
+                            {
+                                const showInodes = args.includes('-i');
+                                const isFull = newState.activeScenarioId === 'disk_full' || (newState.activeScenarioId === 'website_down_2am' && !newState.isSolved);
+                                const inodesFull = newState.activeScenarioId === 'inode_exhaustion' && !newState.isSolved;
+                                let out = '';
+                                if (showInodes) {
+                                    out = 'Filesystem       Inodes   IUsed   IFree IUse% Mounted on\n';
+                                    out += `/dev/sda1       5242880 ${inodesFull ? '5242880' : ' 200000'} ${inodesFull ? '0' : '5042880'}   ${inodesFull ? '100%' : '  4%'} /\n`;
+                                    out += `tmpfs           1000000     500  999500    1% /dev/shm`;
+                                } else {
+                                    const use = isFull ? '100%' : '34%';
+                                    const avail = isFull ? '0' : '50G';
+                                    out = 'Filesystem      Size  Used Avail Use% Mounted on\n';
+                                    out += `/dev/sda1        80G   ${isFull ? '80G' : '30G'}   ${avail}  ${use} /\n`;
+                                    out += 'tmpfs           3.9G     0  3.9G   0% /sys/fs/cgroup';
+                                }
+                                newState.history.push({ type: 'output', content: out });
+                            }
+                            break;
+                        case 'curl':
+                            {
+                                const url = args.find(a => !a.startsWith('-')) || '';
+                                if (url.includes('dogpark.com')) {
+                                    if (newState.services['dogpark-backend'] === 'active') {
+                                        newState.history.push({ type: 'output', content: '<!DOCTYPE html><html><body><h1>DogPark Home</h1></body></html>' });
+                                    } else {
+                                        newState.history.push({ type: 'output', content: 'curl: (28) Connection timed out' });
+                                    }
+                                } else if (url.includes('localhost') || url.includes('127.0.0.1')) {
+                                    const port = url.split(':')[2] || '80';
+                                    if (port === '8080') {
+                                        if (newState.services['xyz-service'] === 'active') {
+                                            const symlink = newState.fs.children?.opt?.children?.xyz?.children?.current;
+                                            if (symlink && symlink.target?.includes('v2')) {
+                                                newState.history.push({ type: 'output', content: '{"service": "xyz", "version": "v2", "class": "Car"}' });
+                                            } else {
+                                                newState.history.push({ type: 'output', content: '{"service": "xyz", "version": "v1", "class": "Car"}' });
+                                            }
+                                        } else {
+                                            newState.history.push({ type: 'error', content: 'curl: (7) Connection refused' });
+                                        }
+                                    } else if (newState.services['nginx'] === 'active') {
+                                        newState.history.push({ type: 'output', content: '<html><h1>Welcome to Meta PE Sim</h1></html>' });
+                                    } else if (newState.processes.find(p => p.command.includes('python'))) {
+                                        newState.history.push({ type: 'output', content: 'Hello from Python Debug Server!' });
+                                    } else {
+                                        newState.history.push({ type: 'error', content: 'curl: (7) Connection refused' });
+                                    }
+                                } else {
+                                    newState.history.push({ type: 'error', content: 'curl: Could not resolve host' });
+                                }
+                            }
+                            break;
+                        case 'pwd': newState.history.push({ type: 'output', content: newState.cwd }); break;
+                        case 'cd':
+                            {
+                                const target = args[0] || '/home/user';
+                                const res = resolvePath(newState.fs, newState.cwd, target);
+                                if (!res.node) {
+                                    newState.history.push({ type: 'error', content: `cd: ${target}: No such file or directory` });
+                                } else if (res.node.type === 'file') {
+                                    newState.history.push({ type: 'error', content: `cd: ${target}: Not a directory` });
+                                } else {
+                                    if (res.node.type === 'symlink' && res.node.target) {
+                                        newState.cwd = res.node.target;
+                                    } else {
+                                        let newPath = target.startsWith('/') ? target : `${newState.cwd}/${target}`;
+                                        const parts = newPath.split('/').filter(p => p && p !== '.');
+                                        const stack = [];
+                                        for (const p of parts) {
+                                            if (p === '..') stack.pop();
+                                            else stack.push(p);
+                                        }
+                                        newState.cwd = '/' + stack.join('/');
+                                    }
+                                }
+                            }
+                            break;
+                        case 'cat':
+                            {
+                                const res = resolvePath(newState.fs, newState.cwd, args[0]);
+                                if (!res.node) newState.history.push({ type: 'error', content: `cat: ${args[0]}: No such file` });
+                                else if (res.node.type !== 'file') newState.history.push({ type: 'error', content: `cat: ${args[0]}: Is a directory or symlink` });
+                                else newState.history.push({ type: 'output', content: res.node.content || '' });
+                            }
+                            break;
+                        case 'ps':
+                            let output = '  PID USER     %CPU %MEM COMMAND\n';
+                            newState.processes.forEach(p => output += `${p.pid.toString().padStart(5)} ${p.user.padEnd(8)} ${p.cpu.toFixed(1).padStart(4)} ${p.mem.toFixed(1).padStart(4)} ${p.command}\n`);
+                            newState.history.push({ type: 'output', content: output });
+                            break;
+                        case 'top':
+                            {
+                                const isWa = newState.activeScenarioId === 'website_down_2am' && !newState.isSolved;
+                                const waVal = isWa ? '85.0' : '0.0';
+                                const idVal = isWa ? '0.0' : '98.6';
+                                let out = `top - ${new Date().toLocaleTimeString()} up 10 days, load average: ${isWa ? '25.0, 20.0, 15.0' : '0.01, 0.04, 0.05'}\n`;
+                                out += `%Cpu(s):  ${isWa ? '12.0' : '1.2'} us,  3.0 sy,  0.0 ni, ${idVal} id, ${waVal} wa\n\n`;
+                                out += '  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND\n';
+                                newState.processes.slice(0, 5).forEach(p => {
+                                    out += `${p.pid.toString().padStart(5)} ${p.user.padEnd(8)}  20   0  100M  10M   2M ${p.status}  ${p.cpu.toFixed(1).padStart(4)} ${p.mem.toFixed(1).padStart(4)}   0:00.00 ${p.command}\n`;
+                                });
+                                newState.history.push({ type: 'output', content: out });
+                            }
+                            break;
+                        case 'kill':
+                            {
+                                const pid = parseInt(args[0] || '0');
+                                const idx = newState.processes.findIndex(p => p.pid === pid);
+                                if (idx === -1) newState.history.push({ type: 'error', content: `kill: (${pid}) - No such process` });
+                                else {
+                                    newState.processes.splice(idx, 1);
+                                    newState.history.push({ type: 'output', content: `[${pid}] Terminated.` });
+                                }
+                            }
+                            break;
+                        case 'rm':
+                            {
+                                const target = args.find(a => !a.startsWith('-'));
+                                const res = resolvePath(newState.fs, newState.cwd, target || '');
+                                if (res.parent && res.name && res.parent.children) {
+                                    delete res.parent.children[res.name];
+                                    newState.history.push({ type: 'output', content: '' });
+                                } else newState.history.push({ type: 'error', content: `rm: cannot remove` });
+                            }
+                            break;
+                        case 'netstat':
+                            let netOut = 'Active Internet connections (only servers)\nProto Recv-Q Send-Q Local Address           Foreign Address         State       PID/Program name\n';
+                            netOut += `tcp        0      0 0.0.0.0:22              0.0.0.0:* LISTEN      880/sshd\n`;
+                            if (newState.services['nginx'] === 'active') netOut += 'tcp        0      0 0.0.0.0:80              0.0.0.0:* LISTEN      - (nginx)\n';
+                            if (newState.processes.find(p => p.command.includes('python'))) netOut += `tcp        0      0 0.0.0.0:80              0.0.0.0:* LISTEN      3421/python3\n`;
+                            if (newState.services['dogpark-backend'] === 'active') netOut += 'tcp        0      0 0.0.0.0:8080            0.0.0.0:* LISTEN      - (java)\n';
+                            if (newState.services['xyz-service'] === 'active') netOut += 'tcp        0      0 0.0.0.0:8080            0.0.0.0:* LISTEN      - (xyz)\n';
+                            newState.history.push({ type: 'output', content: netOut });
+                            break;
+                        case 'systemctl':
+                        case 'service':
+                            {
+                                const cmdArg = args[0] || '';
+                                const isList = !cmdArg || cmdArg.includes('list-unit');
+                                if (isList) {
+                                    let out = 'UNIT                            LOAD   ACTIVE SUB     DESCRIPTION\n';
+                                    const staticServices = [
+                                        { name: 'cron.service', load: 'loaded', active: 'active', sub: 'running', desc: 'Regular background program processing daemon' },
+                                        { name: 'sshd.service', load: 'loaded', active: 'active', sub: 'running', desc: 'OpenBSD Secure Shell server' },
+                                        { name: 'systemd-journald.service', load: 'loaded', active: 'active', sub: 'running', desc: 'Journal Service' },
+                                        { name: 'networking.service', load: 'loaded', active: 'active', sub: 'exited', desc: 'Raise network interfaces' },
+                                    ];
+                                    const dynamicServices = [];
+                                    if (newState.services['nginx']) {
+                                        const status = newState.services['nginx'];
+                                        let active = 'inactive';
+                                        let sub = 'dead';
+                                        if (status === 'active') { active = 'active'; sub = 'running'; }
+                                        if (status === 'failed') { active = 'failed'; sub = 'failed'; }
+                                        dynamicServices.push({ name: 'nginx.service', load: 'loaded', active, sub, desc: 'A high performance web server' });
+                                    }
+                                    if (newState.activeScenarioId === 'website_down_2am' || newState.services['dogpark-backend']) {
+                                        const status = newState.services['dogpark-backend'] || 'inactive';
+                                        let active = 'inactive';
+                                        let sub = 'dead';
+                                        if (status === 'active') { active = 'active'; sub = 'running'; }
+                                        if (status === 'crashloop') { active = 'activating'; sub = 'auto-restart'; }
+                                        dynamicServices.push({ name: 'dogpark-backend.service', load: 'loaded', active, sub, desc: 'DogPark Backend App' });
+                                    }
+                                    if (newState.activeScenarioId === 'failed_deploy' || newState.services['xyz-service']) {
+                                        const status = newState.services['xyz-service'] || 'inactive';
+                                        let active = 'inactive';
+                                        let sub = 'dead';
+                                        if (status === 'active') { active = 'active'; sub = 'running'; }
+                                        dynamicServices.push({ name: 'xyz-service.service', load: 'loaded', active, sub, desc: 'XYZ Image Processor' });
+                                    }
+                                    const allServices = [...staticServices, ...dynamicServices].sort((a,b) => a.name.localeCompare(b.name));
+                                    allServices.forEach(s => {
+                                        const unit = s.name.padEnd(30);
+                                        const load = s.load.padEnd(6);
+                                        const sub = s.sub.padEnd(14);
+                                        // Simple coloring not supported in basic HTML rendering without ansi parsing, stripping codes for clarity in standalone
+                                        out += `${unit} ${load} ${s.active.padEnd(8)} ${sub} ${s.desc}\n`;
+                                    });
+                                    out += `\nLOAD   = Reflects whether the unit definition was properly loaded.\n`;
+                                    out += `${allServices.length} loaded units listed.`;
+                                    newState.history.push({ type: 'output', content: out });
+                                    break;
+                                }
+                                const action = ['start', 'stop', 'restart', 'status'].find(a => args.includes(a));
+                                const service = args.find(a => a !== action && !a.startsWith('-'));
+                                if (!action || !service) {
+                                    newState.history.push({ type: 'error', content: 'usage: systemctl [start|stop|restart|status] [service]' });
+                                } else {
+                                    if (action === 'status') {
+                                        newState.history.push({ type: 'output', content: `Active: ${newState.services[service] || 'inactive'}` });
+                                    } else if (action === 'start' || action === 'restart') {
+                                        newState.services[service] = 'active';
+                                        newState.history.push({ type: 'output', content: '' });
+                                    } else if (action === 'stop') {
+                                        newState.services[service] = 'inactive';
+                                        newState.history.push({ type: 'output', content: '' });
+                                    }
+                                }
+                            }
+                            break;
+                        case 'du':
+                        case 'vmstat':
+                            if (newState.activeScenarioId === 'website_down_2am' && !newState.isSolved) {
+                                let out = `procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----\n`;
+                                out += ` r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st\n`;
+                                out += ` 1  5      0 120000 977000 200000    0    0  1200  3000  200  400 12  3  0 85  0`;
+                                newState.history.push({ type: 'output', content: out });
+                            } else {
+                                let out = `procs -----------memory---------- ---swap-- -----io---- -system-- ------cpu-----\n`;
+                                out += ` r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st\n`;
+                                out += ` 0  0      0 400000 20000 500000    0    0     1     2  100  200  1  1 98  0  0`;
+                                newState.history.push({ type: 'output', content: out });
+                            }
+                            break;
+                        case 'dmesg':
+                        case 'truncate':
+                        case 'grep':
+                            newState.history.push({ type: 'output', content: '(Command executed)' });
+                            break;
+                        default:
+                            newState.history.push({ type: 'error', content: `${cmd}: command not found` });
+                    }
+                } catch (e) {
+                    newState.history.push({ type: 'error', content: `System error processing command: ${e}` });
+                }
+                newState = checkScenarioStatus(newState);
+                setGameState(newState);
+                setInput('');
+            };
+
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    executeCommand(input);
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (inputHistory.length > 0 && historyIndex < inputHistory.length - 1) {
+                        const newIndex = historyIndex + 1;
+                        setHistoryIndex(newIndex);
+                        setInput(inputHistory[newIndex]);
+                    }
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    if (historyIndex > 0) {
+                        const newIndex = historyIndex - 1;
+                        setHistoryIndex(newIndex);
+                        setInput(inputHistory[newIndex]);
+                    } else if (historyIndex === 0) {
+                        setHistoryIndex(-1);
+                        setInput('');
+                    }
+                }
+            };
+
+            return (
+                <div className="flex flex-col h-screen w-full bg-slate-900 text-gray-200 font-mono">
+                    <div className="p-4 bg-slate-800 border-b border-slate-700 flex justify-between items-center shadow-md">
+                        <div className="flex items-center gap-2">
+                            <TerminalIcon className="text-blue-400" />
+                            <h1 className="text-xl font-bold text-white">PE Troubleshooting Environment</h1>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <span className="text-sm text-gray-400">Load Scenario:</span>
+                            <div className="flex gap-2 flex-wrap justify-end">
+                                {scenarios.map(s => (
+                                    <button
+                                        key={s.id}
+                                        onClick={() => loadScenario(s.id)}
+                                        className={`px-3 py-1 text-xs rounded border transition-colors ${gameState.activeScenarioId === s.id ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}
+                                    >
+                                        {s.difficulty}: {s.name.split(':')[1]}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-1 overflow-hidden">
+                        <div className="w-64 bg-slate-900 border-r border-slate-700 p-4 hidden md:flex flex-col gap-6 overflow-y-auto">
+                            <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                <h3 className="text-sm font-semibold text-gray-300 mb-2 border-b border-slate-700 pb-1">Current Status</h3>
+                                {gameState.activeScenarioId ? (
+                                    <div>
+                                        <div className="text-xs text-blue-300 mb-2">{scenarios.find(s=>s.id === gameState.activeScenarioId)?.name}</div>
+                                        <div className={`flex items-center gap-2 text-sm ${gameState.isSolved ? 'text-green-400' : 'text-amber-400'}`}>
+                                            {gameState.isSolved ? <CheckCircleIcon size={16}/> : <RotateCcwIcon size={16} className="animate-spin-slow"/>}
+                                            {gameState.isSolved ? 'RESOLVED' : 'INVESTIGATING'}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="text-xs text-gray-500">System Idle. Select a scenario.</div>
+                                )}
+                            </div>
+
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-sm text-gray-400"><CpuIcon size={14}/> CPU Load</div>
+                                    <div className={`h-2 w-20 rounded-full ${gameState.activeScenarioId === 'cpu_hog' && !gameState.isSolved ? 'bg-red-900' : 'bg-green-900'}`}>
+                                        <div className={`h-full rounded-full ${gameState.activeScenarioId === 'cpu_hog' && !gameState.isSolved ? 'bg-red-500 w-[98%]' : 'bg-green-500 w-[5%]'}`}></div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2 text-sm text-gray-400"><HardDriveIcon size={14}/> Disk /</div>
+                                    <div className={`h-2 w-20 rounded-full ${((gameState.activeScenarioId === 'disk_full' || gameState.activeScenarioId === 'website_down_2am' || gameState.activeScenarioId === 'inode_exhaustion') && !gameState.isSolved) ? 'bg-red-900' : 'bg-green-900'}`}>
+                                        <div className={`h-full rounded-full ${((gameState.activeScenarioId === 'disk_full' || gameState.activeScenarioId === 'website_down_2am' || gameState.activeScenarioId === 'inode_exhaustion') && !gameState.isSolved) ? 'bg-red-500 w-[100%]' : 'bg-green-500 w-[30%]'}`}></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-auto">
+                                {gameState.activeScenarioId ? (
+                                    <div className="bg-slate-800 border border-slate-700 p-3 rounded text-sm">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <div className="flex items-center gap-2 font-bold text-gray-300"><HelpCircleIcon size={14} className="text-blue-400"/> Hints</div>
+                                            <button onClick={() => setShowHints(!showHints)} className="text-xs text-blue-400 hover:text-blue-300 underline">{showHints ? 'Hide' : 'Show Solution'}</button>
+                                        </div>
+                                        {showHints ? (
+                                            <ul className="list-disc list-inside space-y-2 text-gray-400 text-xs">
+                                                {scenarios.find(s => s.id === gameState.activeScenarioId)?.hints.map((hint, idx) => (
+                                                    <li key={idx} className="break-words font-mono text-green-400">{hint}</li>
+                                                ))}
+                                            </ul>
+                                        ) : <p className="text-gray-500 text-xs italic">Stuck? Click to reveal commands.</p>}
+                                    </div>
+                                ) : <div className="bg-blue-900/20 border border-blue-900/50 p-3 rounded text-xs text-blue-200">Tip: Use <code className="bg-slate-800 px-1 rounded">top</code> and <code className="bg-slate-800 px-1 rounded">ps aux</code>.</div>}
+                            </div>
+                        </div>
+
+                        <div className="flex-1 bg-black p-4 overflow-y-auto font-mono text-sm md:text-base cursor-text" onClick={() => inputRef.current?.focus()}>
+                            {gameState.history.map((line, i) => (
+                                <div key={i} className="mb-1 whitespace-pre-wrap break-all">
+                                    {line.type === 'input' && <span className="text-white font-bold">{line.content}</span>}
+                                    {line.type === 'output' && <span className="text-gray-300">{line.content}</span>}
+                                    {line.type === 'error' && <span className="text-red-400">{line.content}</span>}
+                                    {line.type === 'system' && <span className="text-green-500 font-semibold">{line.content}</span>}
+                                </div>
+                            ))}
+                            <div className="flex items-center mt-2" ref={bottomRef}>
+                                <span className="text-green-500 mr-2">user@prod-box:{gameState.cwd}$</span>
+                                <input ref={inputRef} type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} className="bg-transparent border-none outline-none text-white flex-1" autoComplete="off" autoFocus />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<PEMockInterview />);
+    </script>
+</body>
+</html>
